@@ -15,9 +15,10 @@ const imageLocationsList = [];
 
 let currentImage = 0;
 let flightProgress = 0;
-let flightDuration = 600;
+let flightCurve = 0;
 let isTravelling = false;
 let idleFrames = -400;
+const flightSpeed = 0.001;
 
 
 const scene = new THREE.Scene()
@@ -104,10 +105,6 @@ function loopIdleAnimation() {
   idleFrames += 0.015; //Add Value for speed
   cylinder.position.y += Math.sin(idleFrames) / 75; //Divide Value for height change
 
-  if (idleFrames >= 1) {
-    idleFrames = 0;
-    console.log("Reset Idle Frames");
-  }
   //}
 
 }
@@ -161,12 +158,12 @@ function prepareTravelToImage() {
   const startLocation = cylinder.position.clone();
   const targetLocation = new THREE.Vector3(imageX, imageY, imageZ);
 
-  const direction = target.clone().sub(start).normalize();
+  const direction = targetLocation.clone().sub(startLocation).normalize();
 
   const midpoint = startLocation.clone().lerp(targetLocation, 0.5);
 
   const side = new THREE.Vector3(-direction.z, 0, direction.x).normalize();
-  const curveAmount = 2.0 + Math.random() * 2.0;
+  const curveAmount = 20.0 + Math.random() * 50.0;
   const controlLocation = midpoint.clone().add(side.multiplyScalar(curveAmount));
 
   flightCurve = new THREE.QuadraticBezierCurve3(startLocation, controlLocation, targetLocation);
@@ -174,15 +171,40 @@ function prepareTravelToImage() {
   flightProgress = 0;
   isTravelling = true;
 
+}
 
+function travelToImage() {
+  if (isTravelling) {
+    flightProgress += flightSpeed;
 
+    const position = flightCurve.getPoint(flightProgress);
+    cylinder.position.copy(position);
+
+    const nextPosition = flightCurve.getPoint(Math.min(flightProgress + 0.01, 1));
+
+    cylinder.lookAt(nextPosition);
+
+    if (flightProgress >= 1) {
+      isTravelling = false;
+      currentImage += 1;
+
+      if (currentImage >= imageLocationsList.length) {
+        currentImage = 0;
+      }
+
+      // wait 5 seconds before moving to the next image
+      setTimeout(() => {
+        prepareTravelToImage();
+      }, 5000);
+    }
+  }
 }
 
 
 function animate() {
   requestAnimationFrame(animate);
   loopIdleAnimation();
-  travelToImage1();
+  travelToImage();
 
 
   controls.update();
@@ -190,4 +212,5 @@ function animate() {
   renderer.render(scene, camera)
 }
 
+prepareTravelToImage();
 animate();
