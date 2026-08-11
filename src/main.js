@@ -9,6 +9,10 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { rand } from 'three/tsl';
+//import { ToonShaderHatching } from 'three/examples/jsm/Addons.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 
 const usedImageURLs = [];
 const imageLocationsList = [];
@@ -19,17 +23,18 @@ let flightCurve = 0;
 let isTravelling = false;
 let idleFrames = -400;
 const flightSpeed = 0.001;
+let randomOffsetX;
 
 
 const scene = new THREE.Scene()
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000)
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 300) //75
 const renderer = new THREE.WebGLRenderer({
   canvas: document.querySelector('#bg'),
 })
 
 renderer.setPixelRatio(window.devicePixelRatio)
 renderer.setSize(window.innerWidth, window.innerHeight)
-camera.position.setZ(75)
+//camera.position.setZ(75)
 
 const controls = new OrbitControls(camera, renderer.domElement);
 
@@ -52,16 +57,17 @@ scene.add(pointLight, ambientLight);
 // ===================== Helper =====================
 const lightHelper = new THREE.PointLightHelper(pointLight);
 const gridHelper = new THREE.GridHelper(200, 50);
-scene.add(lightHelper, gridHelper);
+const cameraHelper = new THREE.CameraHelper(camera);
+//scene.add(lightHelper, gridHelper, camera);
 
 
 // ===================== Stars =====================
 function addStar() {
   const geometry = new THREE.SphereGeometry(0.25, 24, 24);
-  const material = new THREE.MeshStandardMaterial({ color: 0xF49B0B });
+  const material = new THREE.MeshStandardMaterial({ color: 0xF49B0B, emissive: 0xF49B0B, emissiveIntensity: 2 });
   const star = new THREE.Mesh(geometry, material);
 
-  const [x, y, z] = Array(3).fill().map(() => THREE.MathUtils.randFloatSpread(200));
+  const [x, y, z] = Array(3).fill().map(() => THREE.MathUtils.randFloatSpread(800));
 
   star.position.set(x, y, z);
   scene.add(star);
@@ -74,9 +80,8 @@ function addImageSprite(textureUrl) {
   const defaultHeight = 5;
   sprite.scale.set(defaultHeight, defaultHeight, 1);
 
-  const [x, y, z] = Array(3).fill().map(() => THREE.MathUtils.randFloatSpread(200));
+  const [x, y, z] = Array(3).fill().map(() => THREE.MathUtils.randFloatSpread(400));
   imageLocationsList.push([x, y, z]);
-  console.log(imageLocationsList);
   sprite.position.set(x, y, z);
   scene.add(sprite);
 
@@ -88,7 +93,7 @@ function addImageSprite(textureUrl) {
   });
 }
 
-Array(300).fill().forEach(addStar);
+Array(1200).fill().forEach(addStar);
 Array(100).fill().forEach(() => {
   const randomUrl = galleryImageUrls[Math.floor(Math.random() * galleryImageUrls.length)];
   if (!usedImageURLs.includes(randomUrl)) {
@@ -96,6 +101,7 @@ Array(100).fill().forEach(() => {
     usedImageURLs.push(randomUrl);
   }
 });
+console.log(imageLocationsList);
 
 //const skyBoxTexture = new THREE.TextureLoader().load(skyImage);
 //scene.background = skyBoxTexture;
@@ -129,34 +135,27 @@ function calculateTravellingDistance() {
   }
 }
 
-function travelToImage1() {
-  let [imageX, imageY, imageZ] = imageLocationsList[currentImage];
-  let target = new THREE.Vector3(imageX, imageY, imageZ);
-  const speed = 0.0025; // 0 < speed <= 1 (fraction of distance per frame)
-  cylinder.position.lerp(target, speed);
-
-  //Clean Curve
-  //cylinder.position.y += Math.sin(idleFrames / calculateTravellingDistance());
-
-  isTravelling = true;
-
-  if (cylinder.position.distanceTo(target) < 0.1) {
-    cylinder.position.copy(target);
-    isTravelling = false;
-
-    currentImage += 1;
-
-    if (currentImage >= imageLocationsList.length) {
-      currentImage = 0;
-    }
-  }
+function calculateIdealCameraOffset(target) {
+  const idealCameraOffset = new THREE.Vector3(5, 5, -5);
+  //idealCameraOffset.applyQuaternion(target.rotation);
+  idealCameraOffset.add(target.position);
+  return idealCameraOffset;
 }
+
+function calculateIdealCameraLookAt(target) {
+  const idealCameraLookAt = new THREE.Vector3(0, 10, 50);
+  idealCameraLookAt.applyQuaternion(target.rotation);
+  idealCameraLookAt.add(target.position);
+  return idealCameraLookAt;
+}
+
 
 function prepareTravelToImage() {
   const [imageX, imageY, imageZ] = imageLocationsList[currentImage];
+  randomOffsetX = Math.floor(Math.random() * (10 - 5 + 1)) + 5;
 
   const startLocation = cylinder.position.clone();
-  const targetLocation = new THREE.Vector3(imageX, imageY, imageZ);
+  const targetLocation = new THREE.Vector3(imageX - randomOffsetX, imageY, imageZ);
 
   const direction = targetLocation.clone().sub(startLocation).normalize();
 
@@ -173,6 +172,7 @@ function prepareTravelToImage() {
 
 }
 
+
 function travelToImage() {
   if (isTravelling) {
     flightProgress += flightSpeed;
@@ -184,6 +184,11 @@ function travelToImage() {
 
     cylinder.lookAt(nextPosition);
 
+    const ogCameraLoc = camera.position.copy(calculateIdealCameraOffset(cylinder));
+
+    // Direkt auf den Cylinder schauen
+    camera.lookAt(cylinder.position);
+
     if (flightProgress >= 1) {
       isTravelling = false;
       currentImage += 1;
@@ -192,25 +197,32 @@ function travelToImage() {
         currentImage = 0;
       }
 
-      // wait 5 seconds before moving to the next image
+      camera.position.copy((new THREE.Vector3(3 + randomOffsetX, 3, -3)).add(cylinder.position))
+
       setTimeout(() => {
         prepareTravelToImage();
-      }, 5000);
+      }, 7.5 * 1000);
     }
   }
 }
 
 
+
+
+
 function animate() {
   requestAnimationFrame(animate);
+
   loopIdleAnimation();
   travelToImage();
 
+  if (!isTravelling) {
+    //controls.update();
+  }
 
-  controls.update();
-
-  renderer.render(scene, camera)
+  renderer.render(scene, camera);
 }
+
 
 prepareTravelToImage();
 animate();
